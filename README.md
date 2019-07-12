@@ -28,3 +28,7 @@ How this works in brief:
    speechSynthesis.speak( new SpeechSynthesisUtterance( subtitle_text ) );
 
 ![Interface](https://github.com/wilwad/javascript-srt-to-speech/blob/master/screen.png)
+
+How to use
+
+Place just 1 file index.html into movie folder. It will autodetect the movie name and SRT file by using window.location.href.
