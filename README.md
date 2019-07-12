@@ -26,3 +26,5 @@ How this works in brief:
 7. srtBuffer[ local_time ] to give you the subtitle text at video.currentTime
 8. speak the text:
    speechSynthesis.speak( new SpeechSynthesisUtterance( subtitle_text ) );
+
+![Interface](https://github.com/wilwad/javascript-srt-to-speech/blob/master/screen.png)
