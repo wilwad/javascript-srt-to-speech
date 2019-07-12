@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="author" content="root" >
+  <meta name="description" content="Movie Subtitle Reader">
+  <title>Movie Subtitles to Speech</title>
+  <style>
+   .container {margin-top:15px;}
+   .hidden1 { display: none;}
+  </style>
+ </head>
+ <body> 
+  <div class='container'>
+   <div class='row'>
+    <div class='col-md-12'>
+     <small>Place this file inside a movie folder. Movie and folder must have the same name. MP4 movie and SRT will be automatically loaded if detected.</small>
+	 <HR>
+    </div>
+   </div>
+   <div class='row'>
+    <div class='col-md-4'>
+	 <label for='src'>Movie</label> <span id='src'></span>
+    </div>
+    <div class='col-md-4'>
+	 <label for='movie'>Voice</label> <select id='lstvoices'></select>
+    </div>
+    <div class='col-md-4'>
+	 <label for='srt'>Subtitles</label> <input type='file' id='srt'>
+    </div>
+   </div>
+
+   <div class='row'>
+    <div class='col-md-12'>
+		<p></p>
+		<div align="center" class="embed-responsive embed-responsive-16by9">
+			<video id='video' controls class="embed-responsive-item"></video>
+			<p></p>
+			<span id='subtitle'><span style='color:red'>No Subtitles loaded yet.</span></span>
+		</div>
+    </div>
+   </div>
+  </div>
+ <script>
+  /**
+   * Movie Subtitles to Speech
+   * William Sengdara copyleft July 2019
+   *
+   * Tested and working on FireFox
+   * 				Supported video:     MP4
+   * 				Supported subtitles: SRT
+   *				ajax access to file:// allowed
+   *
+   * Google Chrome: 
+   *                speechsynthesis no longer works
+   *                ajax access to file:// not allowed
+   *
+   * How this works in brief:
+   *
+   * 1. Place this file index.html into a movie directory e.g. /my.movie.2019
+   * 2. there must be a movie inside this directory with the same name e.g. /my.movie.2019.mp4
+   * 3. set video.src = current_directory_name/current_directory_name.mp4
+   * 4. use ajax to load subtitle file current_directory_name/current_directory_name.srt
+   * 5. parsing SRT file:
+   *    srtBuffer['00:00:20'] = 'This is a line in the subtitle file'
+   *    srtBuffer['00:00:25'] = 'This is another line in the subtitle file'
+   * 6. setInterval:
+   *    videoTimeToLocalTime( video.currentTime ) to give you 'hh:mm:ss'
+   * 7. srtBuffer[ local_time ] to give you the subtitle text at video.currentTime
+   * 8. speak the text:
+   *    speechSynthesis.speak( new SpeechSynthesisUtterance( subtitle_text ) );
+   */
+
+  var src       = undefined
+  var lstvoices = undefined
+  var srt       = undefined
+  var video     = undefined
+  var subtitle  = undefined;
+
+  var srtBuffer = {}
+  var timerId = 0;
+  var tmp = []
+
+  // global options object
+  var options = {}
+  options.display_subtitles = false
+
+  window.addEventListener('load', function(){
+		console.log('window.loaded')		
+		
+		src        = document.getElementById('src')
+		lstvoices  = document.getElementById('lstvoices')
+		srt        = document.getElementById('srt')
+		video      = document.getElementById('video')
+		subtitle   = document.getElementById('subtitle')
+
+		var voices = ("speechSynthesis" in window) ? window.speechSynthesis.getVoices() : undefined;
+
+		// FireFox: refresh window twice in order to get the list of voices !
+		if ( voices ){
+			/* voices are not in alphabetic order, so we will add them to an array and sort() it */		
+			for (let idx=0; idx < voices.length; idx++){
+				let voice = voices[idx]
+				tmp.push( voice.name ) // as key
+				tmp[ voice.name ] = {'index': idx, 'default': voice.default} // save index and default
+			}
+
+			// sort voices list
+			tmp.sort()
+
+			var lst = "";
+
+			// create a sorted <select> list
+			for(let idx=0; idx < tmp.length; idx++){
+				let name  = tmp[idx]
+				let index = tmp[name].index
+				let def   = tmp[name].default
+
+				selected = ( name == 'English_(America)') ? 'selected' : def ? 'selected' : '';
+				lst +=`<option value='${index}' ${selected}>${name}</option>`;
+			}
+
+			tmp = []
+			lstvoices.innerHTML = lst
+		} 
+
+		if ( !lstvoices.options.length ) {
+			lstvoices.innerHTML = "<option value='0' selected>Default Voice</option>";
+		}
+	
+		var ajax_process_srt = function(file){
+			let ajax = (window.XMLHttpRequest) ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP");
+
+		     ajax.onreadystatechange= function(){     
+		        if (ajax.readyState==4 && ajax.statusText == "OK"){    
+			        parse_srt(ajax.responseText);
+      			}
+			}
+	  		// set content type
+		    ajax.open("GET", file, true);
+		    ajax.send();   
+		}
+
+		// parse SRT content
+		var parse_srt = function( fileContent ){
+			var buffer = []
+			var srtTemp = fileContent
+                          .replace(/<i>/g,"")
+                          .replace(/<\/i>/g,"")
+                          .split('\n')
+			
+			for(let idx=0; idx < srtTemp.length; idx++){
+				let line = srtTemp[idx].trim()
+				if ( ! line.length ){
+					/*
+					530
+					01:15:44,749 --> 01:15:47,252
+					Those are moments when we're lucky...
+					*/
+					//  0    		1                            2
+					// "[698],[01:32:04,305 --> 01:32:10,514],www.OpenSubtitles.org"
+                    if (buffer.length){
+						let time  = buffer[1].split(',')[0]
+						let text = buffer.splice(2).join("\n") // consider everything after timings subtitle text
+
+						// don't duplicate
+						if (! srtBuffer[time]){
+							srtBuffer[time] = text.trim()
+						}
+
+					   	buffer = []
+					}
+				} else {
+			 		buffer.push( line )
+				}	
+			}
+			buffer = []
+			srtTemp = [];
+			// console.log( strBuffer )
+			subtitle.innerHTML = "<spa style='color:green'>Subtitles successfully loaded. Play your movie.</span>";	
+		}
+
+		var process_srt = function(){
+			srtBuffer = {} // clear
+
+			let file = this.files[0];
+			var reader = new FileReader();
+
+			reader.onload = function( file ){
+				var fileContent = file.target.result;
+
+				console.log('Your SRT file has loaded')
+				parse_srt( fileContent )
+			}
+
+			let megs = Math.ceil(file.size / 1024 / 1024);
+			console.log(file.name, file.size, `(${megs} MB)`, file.type);
+
+			switch (file.type){
+				case 'application/x-subrip':
+				  // let the man through
+				  break;
+				  
+				default:
+				  alert("Only SRT files supported. Ignoring: " + file.type);
+				  return false;
+			  }
+			  
+			// Get the selected video from Dialog
+			reader.readAsText( file );
+
+			console.log('process_srt')
+		}
+
+		var speak_srt = function(){
+			if (video.paused) return;
+
+			window.clearInterval( timerId )
+
+			let time = videoTimeToLocalTime(video.currentTime)
+			let text = srtBuffer[ time ]
+
+			if (text){
+				console.log(time, text)
+				var msg     = new SpeechSynthesisUtterance();
+				msg.volume = 0.4; // 0 to 1, does not seem to work
+				msg.voice = voices[ lstvoices.value ];
+				msg.text = text;
+				
+				if ( options.display_subtitles ){
+                    subtitle.innerHTML = `<b>${time}</b> - ${text}`;
+				}
+
+				speechSynthesis.speak(msg);
+			} else {
+				console.log(time, "-")
+			}
+
+			if (! options.display_subtitles && subtitle.innerHTML.length) {
+				subtitle.innerHTML = "";
+			}
+
+			timerId = setInterval( speak_srt, 1000)
+		}
+
+		var movieSrtFromHref = function(){
+			let parts = window.location.href.split('/')
+			let dir   = parts[ parts.length - 2]
+			let srt   = `${dir}.srt`
+			var movie = `${dir}.mp4`;
+			console.log(movie)
+			console.log(srt)
+
+			video.src = movie
+			src.innerHTML = movie
+			
+			// FireFox allows ajax to access file:///
+			ajax_process_srt(srt)
+		}
+			
+		var process_movie = function(){
+			let file = this.files[0];
+
+			console.log(file)
+			video.src = file.name
+
+			/*
+			 //You can read the movie as Data and crash your browser/computer
+
+			var reader = new FileReader();
+
+			reader.onload = function(file){
+				video.src = file.target.result;
+				console.log('Your movie has loaded')
+			}
+
+			let megs = Math.ceil(file.size / 1024 / 1024);
+			console.log(file.name, file.size, `(${megs} MB)`, file.type);
+			  
+			switch (file.type){
+				case 'video/mp4':
+				  // workout the movie
+				  
+				  break;
+				  
+				default:
+				  alert("Only MP4 files supported. Ignoring: " + file.type);
+				  return false;
+			  }
+			  
+			// Get the selected video from Dialog
+			reader.readAsDataURL(file);
+			*/
+
+			console.log('process_movie')
+		}
+
+		var process_metadata = function(e){
+			var width = this.videoWidth;
+	        var height = this.videoHeight;
+			console.log('process_metadata', width, 'x', height)		
+		}
+			
+		var videoTimeToLocalTime = function(currentTime){
+			var s = parseInt(currentTime % 60);
+			var m = parseInt((currentTime / 60) % 60);
+			var h = parseInt(currentTime / 60 - m) / 60
+			h = (h+"").length == 1 ? "0"+h : h;
+			m = m < 10 ? "0" + m : m;
+			s = s < 10 ? "0" + s : s;
+
+		   return `${h}:${m}:${s}`;
+		}
+
+		//movie.addEventListener('change', process_movie, false)
+		srt.addEventListener('change', process_srt, false)
+		video.addEventListener('loadedmetadata', process_metadata, false)
+		video.addEventListener('error', function(e){}, false)
+		video.addEventListener('canplay', function(){ console.log("canplay"); }, false);
+		video.addEventListener('play', function(){ console.log("play");	}, false);
+		video.addEventListener('pause', function(){ console.log("stop"); }, false);
+		video.addEventListener('stop', function(){ console.log("stop"); }, false);
+		video.addEventListener('ended', function(){ console.log("ended") }, false);
+		
+		// use window.location.href to build movie path for video.src
+		movieSrtFromHref()
+
+		// start subtitle speaker timer
+		timerId = setInterval( speak_srt, 1000)
+
+	}, false)
+
+ </script>
+ </body>
+</html>
