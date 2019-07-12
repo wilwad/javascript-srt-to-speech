@@ -31,4 +31,5 @@ How this works in brief:
 
 How to use
 
-Place just 1 file index.html into movie folder. It will autodetect the movie name and SRT file by using window.location.href.
+Place index.html into your movie folder. It will auto detect the movie name and SRT file by using window.location.href.
+Meaning the directory and movie names must match.
