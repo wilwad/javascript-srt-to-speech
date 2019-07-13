@@ -7,6 +7,9 @@ Tested and working on FireFox
  				Supported video:     MP4
  				Supported subtitles: SRT
 				ajax access to file:// allowed
+```
+FireFox update no longer allows ajax to fetch file:///  Reason: CORS request not HTTP
+```
 
 Google Chrome: 
        speechsynthesis no longer works
